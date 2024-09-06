@@ -20,17 +20,18 @@ void particleFilter_CV::initParticles( State init_Xk)
         particles[i].prev_Xk.Y =  init_Xk.Y;
         particles[i].prev_Xk.Vx =  init_Xk.Vx;
         particles[i].prev_Xk.Vy =  init_Xk.Vy;
-        particles[i].pre_W = 1/NumOfParticles;
+
+        particles[i].pre_W = 1.0/NumOfParticles;
     }
 }
 
 
 void particleFilter_CV::state_transition() {
     for (int i=0; i < NumOfParticles; i++) {
-        particles[i].cur_Xk.X = particles[i].prev_Xk.X + particles[i].prev_Xk.Vx * T + generateGaussianNoise(0, TRANS_X_STD_Q);
-        particles[i].cur_Xk.Y = particles[i].prev_Xk.Y + particles[i].prev_Xk.Vy * T + generateGaussianNoise(0, TRANS_Y_STD_Q);
-        particles[i].cur_Xk.Vx = particles[i].prev_Xk.Vx + generateGaussianNoise(0, velocity_X_STD_Q);
-        particles[i].cur_Xk.Vy = particles[i].prev_Xk.Vy + generateGaussianNoise(0, velocity_Y_STD_Q);
+        particles[i].cur_Xk.X = particles[i].prev_Xk.X + particles[i].prev_Xk.Vx * T + generateGaussianNoise(0, pow(TRANS_X_STD_Q,2));
+        particles[i].cur_Xk.Y = particles[i].prev_Xk.Y + particles[i].prev_Xk.Vy * T + generateGaussianNoise(0, pow(TRANS_Y_STD_Q,2));
+        particles[i].cur_Xk.Vx = particles[i].prev_Xk.Vx + generateGaussianNoise(0, pow(velocity_X_STD_Q,2));
+        particles[i].cur_Xk.Vy = particles[i].prev_Xk.Vy + generateGaussianNoise(0, pow(velocity_Y_STD_Q,2));
 
         particles[i].prev_Xk = particles[i].cur_Xk;
     }
@@ -40,24 +41,26 @@ void particleFilter_CV::updateWeight(Observation cur_Zk ) {
     for (int i=0; i < NumOfParticles; i++) 
     {
         Observation temp;
-        temp.X0 = particles[i].cur_Xk.X + generateGaussianNoise(0, X_STD_Q);
-        temp.Y0 = particles[i].cur_Xk.Y + generateGaussianNoise(0, Y_STD_Q);
-        particles[i].cur_W = 1.0 /(sqrt(2 * M_PI) * X_STD_Q) * exp(- pow(cur_Zk.X0 - temp.X0, 2) / (2 * pow(X_STD_Q, 2)) ) * 
-            1.0 /(sqrt(2 * M_PI) * Y_STD_Q) * exp(- pow(cur_Zk.Y0 - temp.Y0, 2) / (2 * pow(Y_STD_Q, 2)) ) * particles[i].pre_W ;
+        temp.X0 = particles[i].cur_Xk.X + generateGaussianNoise(0, pow(X_STD_R,2));
+        temp.Y0 = particles[i].cur_Xk.Y + generateGaussianNoise(0, pow(Y_STD_R,2));
+        particles[i].cur_W = 1.0 /(sqrt(2 * M_PI) * X_STD_R) * exp(- pow(cur_Zk.X0 - temp.X0, 2) / (2 * pow(X_STD_R, 2)) ) * 
+            1.0 /(sqrt(2 * M_PI) * Y_STD_R) * exp(- pow(cur_Zk.Y0 - temp.Y0, 2) / (2 * pow(Y_STD_R, 2)) ) * particles[i].pre_W ;
         
         particles[i].pre_W = particles[i].cur_W;
     }
 }
 
 void particleFilter_CV::normalizeWeights() {
-    float sum = 0;
-    
+    float sum_cur = 0;
+    float sum_pre = 0;
     for (int i=0; i < NumOfParticles; i++) {
-        sum += particles[i].cur_W;
+        sum_cur += particles[i].cur_W;
+        sum_pre += particles[i].pre_W;
     }
     
     for (int i=0; i < NumOfParticles; i++) {
-        particles[i].cur_W /= sum;
+        particles[i].cur_W /= sum_cur;
+        particles[i].pre_W /= sum_pre;
     }
 }
 
@@ -89,6 +92,52 @@ void particleFilter_CV::resample() {
     for (int i=0; i < NumOfParticles; i++) {
         particles[i] = newParticles[i];
     }
+    // 将权重归一化
+    //normalizeWeights();
+    for(int i=0; i<particles.size(); i++)
+    {
+        particles[i].cur_W = particles[i].pre_W = 1.0 / NumOfParticles;
+    }
+
+}
+
+void particleFilter_CV::SystemResample()
+{
+    
+    vector<particle> newParticles;
+    std::vector<double> cumulativeSum(particles.size());
+    double totalWeight = 0.0;
+
+    // 计算总权重和累积权重
+    for (size_t i = 0; i < particles.size(); ++i) {
+        totalWeight += particles[i].cur_W;
+        cumulativeSum[i] = (i == 0) ? particles[i].cur_W : cumulativeSum[i - 1] + particles[i].cur_W;
+    }
+
+    // 归一化累积权重
+    for (size_t i = 0; i < cumulativeSum.size(); ++i) {
+        cumulativeSum[i] /= totalWeight;
+    }
+
+    std::vector<int> resampledIndices(particles.size());
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(0.0, 1.0);
+
+    double u;
+    for (size_t i = 0; i < particles.size(); ++i) {
+        u = dis(gen);
+        auto it = std::lower_bound(cumulativeSum.begin(), cumulativeSum.end(), u);
+        newParticles.push_back(particles[ it - cumulativeSum.begin()]);
+    }
+
+    particles.clear();
+    particles = newParticles;
+
+    for(int i=0; i<particles.size(); i++)
+    {
+        particles[i].cur_W = particles[i].pre_W = 1.0 / NumOfParticles;
+    }
 
 }
 
@@ -98,12 +147,12 @@ State particleFilter_CV::caculate_cur_state()
     float sum_X = 0,sum_Y = 0,sum_Vx = 0,sum_Vy = 0;
     for(int i=0; i<NumOfParticles; i++)
     {
-        sum_X += particles[i].cur_Xk.X;
-        sum_Y += particles[i].cur_Xk.Y;
-        sum_Vx += particles[i].cur_Xk.Vx;
-        sum_Vy += particles[i].cur_Xk.Vy;        
+        sum_X += particles[i].cur_Xk.X * particles[i].cur_W;
+        sum_Y += particles[i].cur_Xk.Y * particles[i].cur_W;
+        sum_Vx += particles[i].cur_Xk.Vx * particles[i].cur_W;
+        sum_Vy += particles[i].cur_Xk.Vy * particles[i].cur_W;        
     }
-    return State{sum_X/NumOfParticles,sum_Y/NumOfParticles,sum_Vx/NumOfParticles,sum_Vy/NumOfParticles};
+    return State{sum_X,sum_Y,sum_Vx,sum_Vy};
     
 }
 
@@ -163,18 +212,29 @@ void particleFilter_CV::run(string filename)
     }
     frame_mse.close();
 
+    initParticles(Init_state);
 
     vector<State> ALL_State;
     ALL_State.push_back(Init_state);
-    initParticles(Init_state);
+
+    auto start = std::chrono::high_resolution_clock::now();
     for (int i=1; i < ALL_MSE.size(); i++) {
         state_transition();
         // 为观测赋值
-        updateWeight(Observation{});
+        updateWeight(ALL_MSE[i]);
         normalizeWeights();
         resample();
+        
         ALL_State.push_back(caculate_cur_state());
     }
+    auto end = std::chrono::high_resolution_clock::now();
+
+     // 计算时间差
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+    std::cout << "Time taken by PF: " << duration.count() << " microseconds" << std::endl;
+
+
 
     ofstream State_out(filename + "/PF_State_Out.csv");
     for (size_t i = 0; i < ALL_State.size(); i++)

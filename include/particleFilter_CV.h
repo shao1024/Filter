@@ -5,15 +5,16 @@
 #include <random>
 #include <algorithm>
 #include <fstream>
+#include <chrono>
 using namespace std;
 
-#define TRANS_X_STD_Q 0.05
-#define TRANS_Y_STD_Q 0.03
-#define velocity_X_STD_Q 0.001
-#define velocity_Y_STD_Q 0.001
+#define TRANS_X_STD_Q 0.5
+#define TRANS_Y_STD_Q 0.5
+#define velocity_X_STD_Q 0.01
+#define velocity_Y_STD_Q 0.01
 
-#define X_STD_Q 0.01
-#define Y_STD_Q 0.01
+#define X_STD_R 0.1
+#define Y_STD_R 0.1
 
 #define T 1.0/20
 
@@ -26,8 +27,8 @@ typedef struct State{
 } State;
 
 typedef struct Observation{
-    int X0; /** Zk */
-    int Y0; /** Zk */
+    float X0; /** Zk */
+    float Y0; /** Zk */
 
 } Observation;
 
@@ -59,6 +60,8 @@ public:
     void normalizeWeights();
     /** Resamples particles */
     void resample();
+
+    void SystemResample();
 
     void run(string filename);
 
